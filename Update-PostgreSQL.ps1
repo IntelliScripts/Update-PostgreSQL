@@ -4,6 +4,15 @@ function Update-PostgreSQL {
         [string]$PostgreSQLPath = "C:\Program Files\PostgreSQL\15"
     )
 
+    # Run "wget -uri 'https://raw.githubusercontent.com/stangh/Update-PostgreSQL/refs/heads/main/Update-PostgreSQL.ps1' -UseBasicParsing | iex" to download and load the script into memory.
+    # Then run 'Update-PostgreSQL' to execute the script.
+    
+    # Description:
+    # This script is designed to update PostgreSQL to version 15.12, for vulnerability (CVE-2025-1094).
+    # It checks if PostgreSQL is installed, verifies the version, and if necessary, downloads and installs the latest version.
+    # It also disables any enabled Veeam jobs before the update and re-enables them afterward.
+    # Ensure the script is run with administrative privileges, as it requires access to system services and installation directories.
+
     # Check if the script is running with administrative privileges
     if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
         Write-Host "This script must be run as an administrator. Please run PowerShell as admin."
