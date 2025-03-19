@@ -9,9 +9,9 @@ function Update-PostgreSQL {
     
     # Description:
     # This script is designed to update PostgreSQL to version 15.12, for vulnerability (CVE-2025-1094).
-    # It checks if PostgreSQL is installed, verifies the version, and if necessary, downloads and installs the latest version.
-    # It also disables any enabled Veeam jobs before the update and re-enables them afterward.
-    # Ensure the script is run with administrative privileges, as it requires access to system services and installation directories.
+    # It checks if PostgreSQL is installed and in use, verifies the version, and if necessary, downloads and installs the latest version.
+    # It also disables any enabled Veeam jobs before the update and re-enables them afterward. It then offers to restart the machine to complete the installation.
+    # Ensure the script is run with administrative privileges.
 
     # Check if the script is running with administrative privileges
     if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
