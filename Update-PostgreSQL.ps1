@@ -31,7 +31,7 @@ function Update-PostgreSQL {
     # Check if PostgreSQL or Microsoft SQL Server is being used by Veeam
     $veeamService = Get-Service -Name "*PostgreSQL*" -ErrorAction SilentlyContinue
     if ($veeamService -and $veeamService.Status -ne 'Running') {
-        Write-Host "The PostgreSQL service is not running. Veeam is likely using Microsoft SQL Server instead. Exiting."
+        Write-Host "The PostgreSQL service is not running. Veeam is likely using Microsoft SQL Server. Exiting."
         return
     }
 
@@ -51,24 +51,36 @@ function Update-PostgreSQL {
     }
 
     # Save list of Veeam jobs that are enabled and disable them before the update
-    Write-Host "Saving list of enabled Veeam jobs and disabling them for the update."
-    $veeamJobs = Get-VBRJob | Where-Object { $_.IsScheduleEnabled -eq $true }
-    if ($veeamJobs.Count -eq 0) {
+    Write-Host "Retrieving list of enabled Veeam jobs and disabling them for the update."
+    $enabledVeeamJobs = Get-VBRJob -WarningAction SilentlyContinue | Where-Object { $_.IsScheduleEnabled -eq $true }
+    if ($enabledVeeamJobs.Count -eq 0) {
         Write-Host "No enabled Veeam jobs found."
         return
     }
     else {
-        foreach ($job in $veeamJobs) {
-            Write-Host "Disabling Veeam job: $($job.Name)"
-            $job | Disable-VBRJob | Out-Null
+        # check that there are no actively running jobs before proceeding with disabling any of them
+        $RunningJobs = $enabledVeeamJobs | Where-Object {
+            ($_.IsRunning -eq $true -and $_.IsIdle -eq $false) # the addition of IsIdle $false is needed for continuously running cloud jobs who always return IsRunning $true
         }
-        # Check if any Veeam jobs are still enabled
-        $enabledJobs = Get-VBRJob | Where-Object { $_.IsScheduleEnabled -eq $true }
-        if ($enabledJobs.Count -gt 0) {
-            Write-Host "Some Veeam jobs are still enabled. Please disable them manually before proceeding."
+        if ($RunningJobs.Count -eq 0) {
+            Write-Host "No Veeam jobs are currently running. Proceeding to disable the jobs."
+            foreach ($job in $enabledVeeamJobs) {
+                # Disable the Veeam job
+                Write-Host "Disabling Veeam job: $($job.Name)"
+                $job | Disable-VBRJob | Out-Null
+            }
+            # Check if any Veeam jobs are still enabled
+            $still_EnabledJobs = Get-VBRJob -WarningAction SilentlyContinue | Where-Object { $_.IsScheduleEnabled -eq $true }
+            if ($still_EnabledJobs.Count -gt 0) {
+                Write-Host "Some Veeam jobs are still enabled. Please disable them manually before proceeding."
+                return
+            }
+        }
+        else {
+            Write-Host "Veeam job(s) are currently running. Please wait for them to finish before proceeding."
             return
         }
-    }
+    } 
     
     # Stopping all Veeam services
     Write-Host "Stopping all Veeam services."
@@ -134,23 +146,23 @@ function Update-PostgreSQL {
         }
     }
 
-    Write-Host "The following Veeam jobs were disabled before the update and should be re-enabled:`n$($veeamJobs.Name)"
+    Write-Host "The following Veeam jobs were disabled before the update and should be re-enabled:`n$($enabledVeeamJobs.Name)"
     # Re-enable the Veeam jobs after the update
     $Answer1 = Read-Host "Re-enable Veeam jobs now? (Y/N)"
     if ($Answer1 -eq 'Y') {
         Write-Host "Re-enabling Veeam jobs."
-        foreach ($job in $veeamJobs) {
+        foreach ($job in $enabledVeeamJobs) {
             Write-Host "Re-enabling Veeam job: $($job.Name)"
             $job | Enable-VBRJob | Out-Null
             # check if the job was re-enabled successfully
-            $reEnabledJob = Get-VBRJob -Name $job.Name
+            $reEnabledJob = Get-VBRJob -Name $job.Name -WarningAction SilentlyContinue
             if ($reEnabledJob.IsScheduleEnabled -eq $true) {
                 Write-Host "Veeam job $($job.Name) re-enabled successfully."
             }
             else {
                 Write-Host "Failed to re-enable Veeam job $($job.Name). Please check manually."
             }
-        } # foreach ($job in $veeamJobs)
+        } # foreach ($job in $enabledVeeamJobs)
     } # if ($Answer1 -eq 'Y')
     else {
         Write-Host "Please remember to re-enable the Veeam jobs after the update."
