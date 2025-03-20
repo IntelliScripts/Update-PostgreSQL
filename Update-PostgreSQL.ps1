@@ -1,24 +1,32 @@
 function Update-PostgreSQL {
+    <#
+    .SYNOPSIS
+    Updates PostgreSQL to version 15.12, for vulnerability (CVE-2025-1094).
+    .DESCRIPTION
+    This script updates PostgreSQL on Veeam B&R machines to version 15.12.
+    It checks if PostgreSQL is installed, verifies the version, and if necessary, downloads and installs the latest version.
+    It also disables any enabled Veeam jobs before the update and re-enables them afterward.
+    It then offers to restart the machine to complete the installation.
+    .PARAMETER PostgreSQLPath
+    The path to the PostgreSQL installation. Default is "C:\Program Files\PostgreSQL\15".
+    .EXAMPLE
+    Update-PostgreSQL
+    This command runs the script to update PostgreSQL to version 15.12.
+    .NOTES
+    Ensure the script is run with administrative privileges.
+
+    To use this script, run "wget -uri 'https://raw.githubusercontent.com/stangh/Update-PostgreSQL/refs/heads/main/Update-PostgreSQL.ps1' -UseBasicParsing | iex" to download and load the script into memory.
+    Then run 'Update-PostgreSQL' to execute the script.
+    .LINK
+    https://www.veeam.com/kb4386
+    https://www.enterprisedb.com/downloads/postgres-postgresql-downloads
+    https://helpcenter.veeam.com/docs/backup/vsphere/system_requirements.html?zoom_highlight=versions%20of%20PostgreSQL&ver=120
+    #>
     [CmdletBinding()]
     param (
         [string]$PostgreSQLPath = "C:\Program Files\PostgreSQL\15"
     )
-
-    # Run "wget -uri 'https://raw.githubusercontent.com/stangh/Update-PostgreSQL/refs/heads/main/Update-PostgreSQL.ps1' -UseBasicParsing | iex" to download and load the script into memory.
-    # Then run 'Update-PostgreSQL' to execute the script.
     
-    # Description:
-    # This script is designed to update PostgreSQL to version 15.12, for vulnerability (CVE-2025-1094).
-    # It checks if PostgreSQL is installed and in use, verifies the version, and if necessary, downloads and installs the latest version.
-    # It also disables any enabled Veeam jobs before the update and re-enables them afterward. It then offers to restart the machine to complete the installation.
-    # Ensure the script is run with administrative privileges.
-    
-    # URLs for reference:
-    # https://www.veeam.com/kb4386
-    # https://www.enterprisedb.com/downloads/postgres-postgresql-downloads
-    # https://helpcenter.veeam.com/docs/backup/vsphere/system_requirements.html?zoom_highlight=versions%20of%20PostgreSQL&ver=120
-
-
     # Check if the script is running with administrative privileges
     if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
         Write-Host "This script must be run as an administrator. Please run PowerShell as admin."
@@ -169,6 +177,7 @@ function Update-PostgreSQL {
                 Write-Host "Failed to remove the installer file. Please delete it manually."
             }
         } # if Test-Path installer file
+        
         # Remove the temporary directory if it was created in this script
         if ($tempDirCreated -and (Test-Path "C:\Temp")) {
             Write-Host "Removing the temporary directory C:\Temp."
