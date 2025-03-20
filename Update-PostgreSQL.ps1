@@ -24,7 +24,8 @@ function Update-PostgreSQL {
     #>
     [CmdletBinding()]
     param (
-        [string]$PostgreSQLPath = "C:\Program Files\PostgreSQL\15"
+        [string]$PostgreSQLPath = "C:\Program Files\PostgreSQL\15",
+        [version]$desiredVersion = "15.12"
     )
     
     # Check if the script is running with administrative privileges
@@ -51,16 +52,24 @@ function Update-PostgreSQL {
 
     #Check the PostgreSQL version installed
     Write-Host "Checking PostgreSQL version installed."
-    if (-not (Test-Path "$PostgreSQLPath\bin\pg_ctl.exe")) {
-        Write-Host "pg_ctl.exe not found in $PostgreSQLPath\bin. Exiting."
-        return
-    }
-    $versionInfo = [version](Get-Item "$PostgreSQLPath\bin\pg_ctl.exe").VersionInfo.ProductVersion
-    if ($versionInfo -lt [version]15.12) {
-        Write-Host "PostgreSQL version $versionInfo is installed. Updating to version 15.12."
-    }
+    if ((Test-Path "$PostgreSQLPath\bin\pg_ctl.exe")) {
+        $currentVersion = [version](Get-Item "$PostgreSQLPath\bin\pg_ctl.exe").VersionInfo.ProductVersion
+        # Check if $currentVersion is populated correctly and is of object type version
+        if ($null -eq $currentVersion -or $currentVersion.GetType().Name -ne 'Version') {
+            Write-Host "Failed to retrieve the current PostgreSQL version. Exiting."
+            return
+        }
+        Write-Debug "VersionInfo retrieved. Current PostgreSQL version: $currentVersion. Desired version: $desiredVersion."
+        if ($currentVersion -lt $desiredVersion) {
+            Write-Host "PostgreSQL version $currentVersion is installed. Updating to version 15.12."
+        }
+        else {
+            Write-Host "PostgreSQL is already up to date with version $currentVersion installed. No further action required."
+            return
+        }
+    } # if Test-Path "$PostgreSQLPath\bin\pg_ctl.exe"
     else {
-        Write-Host "PostgreSQL is already up to date with version $versionInfo installed. No further action required."
+        Write-Host "pg_ctl.exe not found in $PostgreSQLPath\bin. Exiting."
         return
     }
 
@@ -81,7 +90,7 @@ function Update-PostgreSQL {
             foreach ($job in $enabledVeeamJobs) {
                 # Disable the Veeam job
                 Write-Host "Disabling Veeam job: $($job.Name)"
-                $job | Disable-VBRJob | Out-Null
+                $job | Disable-VBRJob -WarningAction SilentlyContinue | Out-Null
             }
             # Check if any Veeam jobs are still enabled
             $still_EnabledJobs = Get-VBRJob -WarningAction SilentlyContinue | Where-Object { $_.IsScheduleEnabled -eq $true }
@@ -198,15 +207,15 @@ function Update-PostgreSQL {
     if ($Answer1 -eq 'Y') {
         Write-Host "Re-enabling Veeam jobs."
         foreach ($job in $enabledVeeamJobs) {
-            Write-Host "Re-enabling Veeam job: $($job.Name)"
-            $job | Enable-VBRJob | Out-Null
+            # Write-Host "Re-enabling Veeam job: $($job.Name)"
+            $job | Enable-VBRJob -WarningAction SilentlyContinue | Out-Null
             # check if the job was re-enabled successfully
             $reEnabledJob = Get-VBRJob -Name $job.Name -WarningAction SilentlyContinue
             if ($reEnabledJob.IsScheduleEnabled -eq $true) {
                 Write-Host "Veeam job $($job.Name) re-enabled successfully."
             }
             else {
-                Write-Host "Failed to re-enable Veeam job $($job.Name). Please check manually."
+                Write-Host "Failed to re-enable Veeam job $($job.Name). Please manually re-enable the job."
             }
         } # foreach ($job in $enabledVeeamJobs)
     } # if ($Answer1 -eq 'Y')
@@ -225,7 +234,15 @@ function Update-PostgreSQL {
         }
         else {
             Write-Host "Please remember to restart the machine later to complete the installation."
-        }
-    }
-    
+            # Offer to start Veeam services now
+            $Answer2 = Read-Host "Start Veeam services now? (Y/N)"
+            if ($Answer2 -eq 'Y') {
+                Write-Host "Starting all Veeam services."
+                Get-Service Veeam* -ErrorAction SilentlyContinue | Start-Service -PassThru
+            }
+            else {
+                Write-Host "Don't forget to start the Veeam services manually since they were stopped by this script and the machine has not yet been restarted."
+            }
+        } # if no restart
+    } # if $exitCode -eq 0
 } # function Update-PostgreSQL
