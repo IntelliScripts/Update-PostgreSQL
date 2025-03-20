@@ -1,7 +1,7 @@
 function Update-PostgreSQL {
     <#
     .SYNOPSIS
-    Updates PostgreSQL to version 15.12, for vulnerability (CVE-2025-1094).
+    Updates PostgreSQL to version 15.12, to address vulnerability (CVE-2025-1094).
     .DESCRIPTION
     This script updates PostgreSQL on Veeam B&R machines to version 15.12.
     It checks if PostgreSQL is installed, verifies the version, and if necessary, downloads and installs the latest version.
@@ -55,8 +55,8 @@ function Update-PostgreSQL {
         Write-Host "pg_ctl.exe not found in $PostgreSQLPath\bin. Exiting."
         return
     }
-    $versionInfo = (Get-Item "$PostgreSQLPath\bin\pg_ctl.exe").VersionInfo.ProductVersion
-    if ($versionInfo -lt "15.12") {
+    $versionInfo = [version](Get-Item "$PostgreSQLPath\bin\pg_ctl.exe").VersionInfo.ProductVersion
+    if ($versionInfo -lt [version]15.12) {
         Write-Host "PostgreSQL version $versionInfo is installed. Updating to version 15.12."
     }
     else {
