@@ -12,6 +12,12 @@ function Update-PostgreSQL {
     # It checks if PostgreSQL is installed and in use, verifies the version, and if necessary, downloads and installs the latest version.
     # It also disables any enabled Veeam jobs before the update and re-enables them afterward. It then offers to restart the machine to complete the installation.
     # Ensure the script is run with administrative privileges.
+    
+    # URLs for reference:
+    # https://www.veeam.com/kb4386
+    # https://www.enterprisedb.com/downloads/postgres-postgresql-downloads
+    # https://helpcenter.veeam.com/docs/backup/vsphere/system_requirements.html?zoom_highlight=versions%20of%20PostgreSQL&ver=120
+
 
     # Check if the script is running with administrative privileges
     if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
@@ -46,7 +52,7 @@ function Update-PostgreSQL {
         Write-Host "PostgreSQL version $versionInfo is installed. Updating to version 15.12."
     }
     else {
-        Write-Host "PostgreSQL is already up to date with version $versionInfo installed. No action required."
+        Write-Host "PostgreSQL is already up to date with version $versionInfo installed. No further action required."
         return
     }
 
@@ -82,7 +88,7 @@ function Update-PostgreSQL {
         }
     } 
     
-    # Stopping all Veeam services
+    # Stop all Veeam services
     Write-Host "Stopping all Veeam services."
     Get-Service Veeam* -ErrorAction SilentlyContinue | Stop-Service -Force
     if (Get-Service Veeam* | Where-Object { $_.Status -eq 'Running' }) {
@@ -98,17 +104,36 @@ function Update-PostgreSQL {
     # Download PostgreSQL version 15.12 installer
     if (-not (Test-Path "C:\Temp")) {
         Write-Host "Creating C:\Temp directory for installer download."
+        # create flag to note that the directory was not found and was created so it can be removed later
+        $tempDirCreated = $true
         New-Item -Path "C:\Temp" -ItemType Directory -Force | Out-Null
     }
     Write-Host "Downloading PostgreSQL version 15.12 installer and saving to C:\Temp\PostgreSQL-15.12-1-windows-x64.exe"
     # Invoke-WebRequest -Uri "https://sbp.enterprisedb.com/getfile.jsp?fileid=1259414" -OutFile "C:\Temp\PostgreSQL-15.12-1-windows-x64.exe"
-    # Using WebClient to download the installer as Invoke-WebRequest takes a much longer time to download the file
-    (New-Object System.Net.WebClient).DownloadFile("https://sbp.enterprisedb.com/getfile.jsp?fileid=1259414", "C:\Temp\PostgreSQL-15.12-1-windows-x64.exe")
+    try {
+        # Using WebClient to download the installer (quicker than using Invoke-WebRequest)
+        (New-Object System.Net.WebClient).DownloadFile("https://sbp.enterprisedb.com/getfile.jsp?fileid=1259414", "C:\Temp\PostgreSQL-15.12-1-windows-x64.exe")
+    }
+    catch {
+        Write-Host "Failed to download PostgreSQL installer. Error: $_"
+        return
+    }
+
+    # Confirm the installer file exists after download and check the hash to ensure it was downloaded correctly
     if (-not (Test-Path "C:\Temp\PostgreSQL-15.12-1-windows-x64.exe")) {
         Write-Host "Failed to download PostgreSQL installer. Exiting."
         return
     }
     else {
+        # Check the hash of the downloaded file to ensure it is correct
+        Write-Host "Verifying the hash of the downloaded PostgreSQL installer."
+        $expectedHash = "2DFA43460950C1AECDA05F40A9262A66BC06DB960445EA78921C78F84377B148" # SHA256 hash of the installer
+        $actualHash = (Get-FileHash "C:\Temp\PostgreSQL-15.12-1-windows-x64.exe" -Algorithm SHA256).Hash
+        if ($actualHash -ne $expectedHash) {
+            Write-Host "Downloaded PostgreSQL installer hash does not match the expected hash. 
+            Re-enable the Veeam jobs, start Veeam services, and remove the downloaded file. Exiting."
+            return
+        }
         Write-Host "PostgreSQL installer downloaded successfully.`nProceeding with the installation."
     }
 
@@ -127,24 +152,36 @@ function Update-PostgreSQL {
     # retrieve installation process exit code
     $exitCode = $Process.ExitCode
     if ($exitCode -ne 0) {
-        Write-Host "PostgreSQL installation failed with exit code: $exitCode"
+        Write-Host "PostgreSQL installation failed with exit code: $exitCode.`nPlease look into this and remember to "
     }
     else {
         Write-Host "PostgreSQL installation completed successfully."
         
-        # Remove the installer after installation
+        # Remove the installer file
         if (Test-Path "C:\Temp\PostgreSQL-15.12-1-windows-x64.exe") {
             Write-Host "Removing the installer file."
             Remove-Item "C:\Temp\PostgreSQL-15.12-1-windows-x64.exe" -Force
-        }
-        # test if the installer was removed successfully
-        if (-not (Test-Path "C:\Temp\PostgreSQL-15.12-1-windows-x64.exe")) {
-            Write-Host "Installer file removed successfully."
-        }
-        else {
-            Write-Host "Failed to remove the installer file. Please delete it manually."
-        }
-    }
+            # Test if the installer file was removed successfully
+            if (-not (Test-Path "C:\Temp\PostgreSQL-15.12-1-windows-x64.exe")) {
+                Write-Host "Installer file removed successfully."
+            }
+            else {
+                Write-Host "Failed to remove the installer file. Please delete it manually."
+            }
+        } # if Test-Path installer file
+        # Remove the temporary directory if it was created in this script
+        if ($tempDirCreated -and (Test-Path "C:\Temp")) {
+            Write-Host "Removing the temporary directory C:\Temp."
+            Remove-Item "C:\Temp" -Recurse -Force
+            # Test if the temporary directory was removed successfully
+            if (-not (Test-Path "C:\Temp")) {
+                Write-Host "Temporary directory C:\Temp removed successfully."
+            }
+            else {
+                Write-Host "Failed to remove the temporary directory C:\Temp. Please delete it manually."
+            }
+        } # if $tempDirCreated -and Test-Path temp directory
+    } # if $exitCode -eq 0
 
     Write-Host "The following Veeam jobs were disabled before the update and should be re-enabled:`n$($enabledVeeamJobs.Name)"
     # Re-enable the Veeam jobs after the update
@@ -168,15 +205,18 @@ function Update-PostgreSQL {
         Write-Host "Please remember to re-enable the Veeam jobs after the update."
     }    
 
-    # Restart the machine to complete the installation
-    Write-Host "A restart is required to finalize the installation."
-    # Prompt the user to restart the machine
-    $Answer = Read-Host "Restart now? (Y/N)"
-    # Restart the server
-    if ($Answer -eq 'Y') {
-        Restart-Computer -Force
+    # Restart the machine to complete the installation if $exitCode is 0
+    if ($exitCode -eq 0) {
+        Write-Host "A restart is required to finalize the installation."
+        # Prompt the user to restart the machine
+        $Answer = Read-Host "Restart now? (Y/N)"
+        # Restart the server
+        if ($Answer -eq 'Y') {
+            Restart-Computer -Force
+        }
+        else {
+            Write-Host "Please remember to restart the machine later to complete the installation."
+        }
     }
-    else {
-        Write-Host "Please remember to restart the machine later to complete the installation."
-    }
+    
 } # function Update-PostgreSQL
