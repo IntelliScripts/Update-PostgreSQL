@@ -8,7 +8,7 @@ function Update-PostgreSQL {
     It also disables any enabled Veeam jobs before the update and re-enables them afterward.
     It then offers to restart the machine to complete the installation.
     .PARAMETER PostgreSQLPath
-    The path to the PostgreSQL installation. Default is "C:\Program Files\PostgreSQL\15".
+    The path to the PostgreSQL installation. The default is "C:\Program Files\PostgreSQL\15".
     .EXAMPLE
     Update-PostgreSQL
     This command runs the script to update PostgreSQL to version 15.12.
@@ -25,7 +25,8 @@ function Update-PostgreSQL {
     [CmdletBinding()]
     param (
         [string]$PostgreSQLPath = "C:\Program Files\PostgreSQL\15",
-        [version]$desiredVersion = "15.12"
+        [version]$desiredVersion = "15.12",
+        [switch]$Restart = $false
     )
     
     # Check if the script is running with administrative privileges
@@ -36,7 +37,7 @@ function Update-PostgreSQL {
 
     # Check if PostgreSQL is installed
     if (Test-Path $PostgreSQLPath) {
-        Write-Host "PostgreSQL is found at $PostgreSQLPath. Proceeding with update."
+        Write-Host "PostgreSQL is found at $PostgreSQLPath."
     }
     else {
         Write-Host "PostgreSQL not found at $PostgreSQLPath. Exiting."
@@ -73,15 +74,20 @@ function Update-PostgreSQL {
         return
     }
 
-    # Save list of Veeam jobs that are enabled and disable them before the update
+    # Save a list of Veeam jobs that are enabled and disable them before the update
     Write-Host "Retrieving list of enabled Veeam jobs and disabling them for the update."
     $enabledVeeamJobs = Get-VBRJob -WarningAction SilentlyContinue | Where-Object { $_.IsScheduleEnabled -eq $true }
-    if ($enabledVeeamJobs.Count -eq 0) {
+    # check if Get-VBR returned any warning messages and if so, exit the script
+    if ($? -eq $false) {
+        Write-Host "Error retrieving Veeam jobs. Please check the Veeam Backup & Replication console for any issues."
+        return
+    }
+    elseif ($enabledVeeamJobs.Count -eq 0) {
         Write-Host "No enabled Veeam jobs found."
         return
     }
     else {
-        # check that there are no actively running jobs before proceeding with disabling any of them
+        # check that there are no actively running jobs before proceeding with disabling them
         $RunningJobs = $enabledVeeamJobs | Where-Object {
             ($_.IsRunning -eq $true -and $_.IsIdle -eq $false) # the addition of IsIdle $false is needed for continuously running cloud jobs who always return IsRunning $true
         }
@@ -95,12 +101,12 @@ function Update-PostgreSQL {
             # Check if any Veeam jobs are still enabled
             $still_EnabledJobs = Get-VBRJob -WarningAction SilentlyContinue | Where-Object { $_.IsScheduleEnabled -eq $true }
             if ($still_EnabledJobs.Count -gt 0) {
-                Write-Host "Some Veeam jobs are still enabled. Please disable them manually before proceeding."
+                Write-Host "Some Veeam jobs are still enabled. Please disable them manually before proceeding.`nExiting script."
                 return
             }
         }
         else {
-            Write-Host "Veeam job(s) are currently running. Please wait for them to finish before proceeding."
+            Write-Host "Veeam job(s) are currently running. Please wait for them to finish before proceeding.`nExiting script."
             return
         }
     } 
@@ -118,23 +124,35 @@ function Update-PostgreSQL {
         }
     }
 
-    # Download PostgreSQL version 15.12 installer
+    # Check if the C:\Temp directory exists, if not create it
     if (-not (Test-Path "C:\Temp")) {
         Write-Host "Creating C:\Temp directory for installer download."
         # create flag to note that the directory was not found and was created so it can be removed later
         $tempDirCreated = $true
         New-Item -Path "C:\Temp" -ItemType Directory -Force | Out-Null
     }
+
+    # Download PostgreSQL version 15.12 installer
     Write-Host "Downloading PostgreSQL version 15.12 installer and saving to C:\Temp\PostgreSQL-15.12-1-windows-x64.exe"
-    # Invoke-WebRequest -Uri "https://sbp.enterprisedb.com/getfile.jsp?fileid=1259414" -OutFile "C:\Temp\PostgreSQL-15.12-1-windows-x64.exe"
-    try {
-        # Using WebClient to download the installer (quicker than using Invoke-WebRequest)
-        (New-Object System.Net.WebClient).DownloadFile("https://sbp.enterprisedb.com/getfile.jsp?fileid=1259414", "C:\Temp\PostgreSQL-15.12-1-windows-x64.exe")
-    }
-    catch {
-        Write-Host "Failed to download PostgreSQL installer. Error: $_"
-        return
-    }
+    # Retrive the current value for $ProgressPreference, set it to 'SilentlyContinue' to suppress the progress bar for a much quicker download, then reset it to its original value
+    $originalProgressPreference = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'
+    # Use Invoke-WebRequest to download the installer, if it fails, use WebClient.DownloadFile as a fallback
+    Invoke-WebRequest -Uri "https://sbp.enterprisedb.com/getfile.jsp?fileid=1259414" -OutFile "C:\Temp\PostgreSQL-15.12-1-windows-x64.exe"
+    $ProgressPreference = $originalProgressPreference
+
+    # Check if the download using Invoke-WebRequest was successful
+    if (-not (Test-Path "C:\Temp\PostgreSQL-15.12-1-windows-x64.exe")) {
+        Write-Host "Download failed using Invoke-WebRequest. Attempting to download using WebClient."
+        try {
+            # Using WebClient.DownloadFile method to download the installer
+            (New-Object System.Net.WebClient).DownloadFile("https://sbp.enterprisedb.com/getfile.jsp?fileid=1259414", "C:\Temp\PostgreSQL-15.12-1-windows-x64.exe")
+        }
+        catch {
+            Write-Host "Failed to download PostgreSQL installer. Error: $_"
+            return
+        }
+    } # if download was not successful
 
     # Confirm the installer file exists after download and check the hash to ensure it was downloaded correctly
     if (-not (Test-Path "C:\Temp\PostgreSQL-15.12-1-windows-x64.exe")) {
@@ -165,11 +183,13 @@ function Update-PostgreSQL {
         Wait         = $true
         PassThru     = $true
     }
-    $Process = Start-Process @processOptions
+    $Process = Start-Process @processOptions -PassThru
     # retrieve installation process exit code
     $exitCode = $Process.ExitCode
+    Write-Host "ExitCode: $($exitCode)"
+
     if ($exitCode -ne 0) {
-        Write-Host "PostgreSQL installation failed with exit code: $exitCode.`nPlease look into this and remember to "
+        Write-Host "PostgreSQL installation failed with exit code: $exitCode.Please look into this."
     }
     else {
         Write-Host "PostgreSQL installation completed successfully."
@@ -203,46 +223,48 @@ function Update-PostgreSQL {
 
     Write-Host "The following Veeam jobs were disabled before the update and should be re-enabled:`n$($enabledVeeamJobs.Name)"
     # Re-enable the Veeam jobs after the update
-    $Answer1 = Read-Host "Re-enable Veeam jobs now? (Y/N)"
-    if ($Answer1 -eq 'Y') {
-        Write-Host "Re-enabling Veeam jobs."
-        foreach ($job in $enabledVeeamJobs) {
-            # Write-Host "Re-enabling Veeam job: $($job.Name)"
-            $job | Enable-VBRJob -WarningAction SilentlyContinue | Out-Null
-            # check if the job was re-enabled successfully
-            $reEnabledJob = Get-VBRJob -Name $job.Name -WarningAction SilentlyContinue
-            if ($reEnabledJob.IsScheduleEnabled -eq $true) {
-                Write-Host "Veeam job $($job.Name) re-enabled successfully."
-            }
-            else {
-                Write-Host "Failed to re-enable Veeam job $($job.Name). Please manually re-enable the job."
-            }
-        } # foreach ($job in $enabledVeeamJobs)
-    } # if ($Answer1 -eq 'Y')
-    else {
-        Write-Host "Please remember to re-enable the Veeam jobs after the update."
-    }    
-
+    Write-Host "Re-enabling Veeam jobs."
+    foreach ($job in $enabledVeeamJobs) {
+        # Write-Host "Re-enabling Veeam job: $($job.Name)"
+        $job | Enable-VBRJob -WarningAction SilentlyContinue | Out-Null
+        # check if the job was re-enabled successfully
+        $reEnabledJob = Get-VBRJob -Name $job.Name -WarningAction SilentlyContinue
+        if ($reEnabledJob.IsScheduleEnabled -eq $true) {
+            Write-Host "Veeam job $($job.Name) re-enabled successfully."
+        }
+        else {
+            Write-Host "Failed to re-enable Veeam job $($job.Name). Please manually re-enable the job."
+        }
+    } # foreach ($job in $enabledVeeamJobs)
+   
     # Restart the machine to complete the installation if $exitCode is 0
     if ($exitCode -eq 0) {
         Write-Host "A restart is required to finalize the installation."
-        # Prompt the user to restart the machine
-        $Answer = Read-Host "Restart now? (Y/N)"
-        # Restart the server
-        if ($Answer -eq 'Y') {
+        if ($Restart) {
+            Write-Host "Restarting the machine."
             Restart-Computer -Force
-        }
+        } # if $restart
         else {
-            Write-Host "Please remember to restart the machine later to complete the installation."
-            # Offer to start Veeam services now
-            $Answer2 = Read-Host "Start Veeam services now? (Y/N)"
-            if ($Answer2 -eq 'Y') {
-                Write-Host "Starting all Veeam services."
-                Get-Service Veeam* -ErrorAction SilentlyContinue | Start-Service -PassThru
+            # Prompt the user to restart the machine
+            $Answer = Read-Host "Restart now? (Y/N)"
+            # Restart the server
+            if ($Answer -eq 'Y') {
+                Restart-Computer -Force
             }
             else {
-                Write-Host "Don't forget to start the Veeam services manually since they were stopped by this script and the machine has not yet been restarted."
-            }
-        } # if no restart
+                Write-Host "Please remember to restart the machine later to complete the installation."
+                # Offer to start Veeam services now
+                $Answer2 = Read-Host "Start Veeam services now? (Y/N)"
+                if ($Answer2 -eq 'Y') {
+                    Write-Host "Starting all Veeam services."
+                    Get-Service Veeam* -ErrorAction SilentlyContinue | Start-Service -PassThru
+                }
+                else {
+                    Write-Host "Don't forget to start the Veeam services manually since they were stopped by this script and the machine has not yet been restarted."
+                }
+            } # if no restart
+        } # else no $Restart
     } # if $exitCode -eq 0
 } # function Update-PostgreSQL
+
+# When running via NinjaOne: Update-PostgreSQL -Restart
