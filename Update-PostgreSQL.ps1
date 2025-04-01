@@ -186,7 +186,7 @@ function Update-PostgreSQL {
     $Process = Start-Process @processOptions -PassThru
     # retrieve installation process exit code
     $exitCode = $Process.ExitCode
-    Write-Host "ExitCode: $($exitCode)"
+    Write-Host "ExitCode: $($exitCode)"  
 
     if ($exitCode -ne 0) {
         Write-Host "PostgreSQL installation failed with exit code: $exitCode.Please look into this."
