@@ -15,7 +15,7 @@ function Update-PostgreSQL {
     .NOTES
     Ensure the script is run with administrative privileges.
 
-    To use this script, run "wget -uri 'https://raw.githubusercontent.com/stangh/Update-PostgreSQL/refs/heads/main/Update-PostgreSQL.ps1' -UseBasicParsing | iex" to download and load the script into memory.
+    To use this script, run "wget -uri 'https://raw.githubusercontent.com/IntelliScripts/Update-PostgreSQL/refs/heads/main/Update-PostgreSQL.ps1' -UseBasicParsing | iex" to download and load the script into memory.
     Then run 'Update-PostgreSQL' to execute the script.
     .LINK
     https://www.veeam.com/kb4386
@@ -26,6 +26,7 @@ function Update-PostgreSQL {
     param (
         [string]$PostgreSQLPath = "C:\Program Files\PostgreSQL\15",
         [version]$desiredVersion = "15.12",
+        [Parameter(Mandatory = $false)]
         [switch]$Restart = $false
     )
     
@@ -221,7 +222,7 @@ function Update-PostgreSQL {
         } # if $tempDirCreated -and Test-Path temp directory
     } # if $exitCode -eq 0
 
-    Write-Host "The following Veeam jobs were disabled before the update and should be re-enabled:`n$($enabledVeeamJobs.Name)"
+    Write-Host "The following Veeam jobs were disabled before the update and need to be re-enabled:`n$($enabledVeeamJobs.Name)"
     # Re-enable the Veeam jobs after the update
     Write-Host "Re-enabling Veeam jobs."
     foreach ($job in $enabledVeeamJobs) {
