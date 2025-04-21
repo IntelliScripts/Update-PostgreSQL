@@ -2,11 +2,11 @@
 
 ## Overview
 This PowerShell script updates PostgreSQL to version 15.12 to address the vulnerability (CVE-2025-1094). It is designed for use on Veeam Backup & Replication (B&R) machines. The script performs the following tasks:
-- checkS if PostgreSQL is installed and verifies the version.
+- Checks if PostgreSQL is installed and verifies the version.
 - If PostgreSQL is not found or is already up to date, the script will exit.
 - Downloads and installs the latest version of PostgreSQL if necessary.
 - Disables any enabled Veeam jobs before the update and re-enables them afterward.
-- Offers to restart the machine to complete the installation.
+- Offers to restart the machine to complete the installation. A scheduled task and a temporary script re-enable the jobs post reboot.
 
 ## Prerequisites
 - Ensure the script is run with administrative privileges.
